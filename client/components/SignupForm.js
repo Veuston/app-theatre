@@ -32,6 +32,7 @@ const SignupForm = ({ setLogin, setUser, setStatut }) => {
       if (password === confirmPassword) {
         try {
           let expoToken;
+          
           if (Device.isDevice) {
             const { status: existingStatus } =
               await Notifications.getPermissionsAsync();
@@ -44,7 +45,10 @@ const SignupForm = ({ setLogin, setUser, setStatut }) => {
               alert("Failed to get push expoToken for push notification!");
               return;
             }
-            expoToken = (await Notifications.getExpoPushTokenAsync()).data;
+            //expoToken = (await Notifications.getExpoPushTokenAsync()).data;
+            expoToken = (await Notifications.getExpoPushTokenAsync({
+              projectId: process.env.PROJECT_ID //L'utilisation de la fonction getExpoPushTokenAsync sans spécifier un identifiant de projet (projectId) est obsolète depuis SDK 49
+            })).data;
           } else {
             alert("Must use physical device for Push Notifications");
           }
@@ -60,7 +64,7 @@ const SignupForm = ({ setLogin, setUser, setStatut }) => {
 
           const response = await axios.post(
             //"http://backoffice-forest-admin-sr.herokuapp.com/user/signup",
-            "http://localhost:3310/users",
+            "http://localhost:3310/user/signup",
             
             {
               username,
