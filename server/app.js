@@ -4,7 +4,7 @@ const path = require("path");
 const cookieParser = require("cookie-parser");
 const bodyParser = require("body-parser");
 const cors = require("cors");
-const jwt = require("express-jwt");
+const jwt = require("jsonwebtoken");
 const morgan = require("morgan");
 const {
   errorHandler,
@@ -14,19 +14,21 @@ const {
 
 const app = express();
 
+// Configuration CORS
 let allowedOrigins = [/\.forestadmin\.com$/, /localhost:\d{4}$/];
-
 if (process.env.CORS_ORIGINS) {
   allowedOrigins = allowedOrigins.concat(process.env.CORS_ORIGINS.split(","));
 }
 
 const corsConfig = {
   origin: allowedOrigins,
-  maxAge: 86400, // NOTICE: 1 day
+  maxAge: 86400, // 1 day
   credentials: true,
 };
 
+// Middlewares
 app.use(morgan("tiny"));
+
 // Support for request-private-network as the `cors` package
 // doesn't support it by default
 // See: https://github.com/expressjs/cors/issues/236
@@ -36,56 +38,39 @@ app.use((req, res, next) => {
   }
   next(null);
 });
-app.use(
-  "/forest/authentication",
-  cors({
-    ...corsConfig,
-    // The null origin is sent by browsers for redirected AJAX calls
-    // we need to support this in authentication routes because OIDC
-    // redirects to the callback route
-    origin: corsConfig.origin.concat("null"),
-  })
-);
+
+app.use("/forest/authentication", cors({ ...corsConfig, origin: corsConfig.origin.concat("null") }));
 app.use(cors(corsConfig));
 app.use(bodyParser.json({ limit: "100mb" }));
 app.use(bodyParser.urlencoded({ extended: false, limit: "100mb" }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-// import Routes
+// Routes
 const userRoutes = require("./api/user");
-app.use(userRoutes);
-
 const booksRoutes = require("./api/books");
-app.use(booksRoutes);
-
 const tomeRoutes = require("./api/tome");
+
+app.use(userRoutes);
+app.use(booksRoutes);
 app.use(tomeRoutes);
 
-//Ce middleware ne fait que vérifier que le jeton JWT est présent dans la requête.
-//Il ne vérifie pas si le jeton est valide ou non.
-//Pour vérifier la validité du jeton, vous devez utiliser une fonction de validation personnalisée.
-/* app.use(
-  jwt({
-    secret: process.env.FOREST_AUTH_SECRET,
-    credentialsRequired: false,
-    algorithms: ["HS256"],
-  })
-); */
+// JWT Middleware
+app.use((req, res, next) => {
+  const token = req.header("x-auth-token");
 
-//Correction apportée
-function validateToken(req, res, next) {
-  const token = req.headers['Authorization'].split(' ')[1];
-  const payload = jwt.verify(token, secret);
+  if (!token) return res.status(401).json({ msg: "No token, authorization denied" });
 
-  if (!payload) {
-    return res.status(401).send('Unauthorized');
+  try {
+    const decoded = jwt.verify(token, process.env.FOREST_AUTH_SECRET);
+    req.user = decoded;
+    next();
+  } catch (e) {
+    res.status(400).json({ msg: "Token is not valid" });
   }
+});
 
-  req.user = payload;
-  next();
-}
-
+// Forest Authentication Middleware
 app.use("/forest", (request, response, next) => {
   if (PUBLIC_ROUTES.includes(request.url)) {
     return next();
@@ -93,18 +78,21 @@ app.use("/forest", (request, response, next) => {
   return ensureAuthenticated(request, response, next);
 });
 
+// Import Routes dynamically
 requireAll({
   dirname: path.join(__dirname, "routes"),
   recursive: true,
   resolve: (Module) => app.use("/forest", Module),
 });
 
+// Import Middlewares dynamically
 requireAll({
   dirname: path.join(__dirname, "middlewares"),
   recursive: true,
   resolve: (Module) => Module(app),
 });
 
+// Error handling middleware
 app.use(errorHandler());
 
 module.exports = app;
